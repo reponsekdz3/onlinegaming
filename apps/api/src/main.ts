@@ -99,10 +99,16 @@ app.addHook("onClose", async () => {
 app.setErrorHandler((error, request, reply) => {
   request.log.error({ err: error }, "Unhandled request error");
   if (reply.sent) return;
-  const status = error.statusCode && error.statusCode >= 400 && error.statusCode < 500 ? error.statusCode : 500;
+  const statusValue = typeof error === "object" && error !== null && "statusCode" in error
+    ? (error as { statusCode?: unknown }).statusCode
+    : undefined;
+  const status = typeof statusValue === "number" && statusValue >= 400 && statusValue < 500
+    ? statusValue
+    : 500;
+  const errorMessage = error instanceof Error ? error.message : "Unknown request error";
   return reply.code(status).send({
     error: status === 500 ? "INTERNAL_SERVER_ERROR" : "REQUEST_ERROR",
-    message: status === 500 ? "The request could not be completed." : error.message
+    message: status === 500 ? "The request could not be completed." : errorMessage
   });
 });
 
