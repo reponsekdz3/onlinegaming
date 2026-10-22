@@ -7,7 +7,7 @@
   "scripts": {
     "build": "pnpm --recursive --if-present build",
     "test": "pnpm --recursive --if-present test",
-    "typecheck": "pnpm --recursive --if-present typecheck",
+    "typecheck": "pnpm build && pnpm --recursive --if-present typecheck",
     "dev:api": "pnpm --filter @onlinegaming/api dev"
   },
   "devDependencies": {

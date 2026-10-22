@@ -36,7 +36,7 @@ const pool = databaseUrl ? new Pool({
   max: Number(process.env.DB_POOL_MAX ?? 10),
   connectionTimeoutMillis: 3_000,
   idleTimeoutMillis: 30_000,
-  ssl: process.env.PGSSL === "true" ? { rejectUnauthorized: true } : undefined
+  ...(process.env.PGSSL === "true" ? { ssl: { rejectUnauthorized: true } } : {})
 }) : null;
 
 await app.register(helmet, {
