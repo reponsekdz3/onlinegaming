@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -6,6 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import { Pool } from "pg";
 import { evaluateRealMoneyGate } from "@onlinegaming/domain";
 import { registerAuthRoutes } from "./auth.js";
+import { registerMatchRoutes } from "./matches.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -101,6 +102,7 @@ app.get("/api/v1/platform/status", async () => {
 
 if (pool) {
   await registerAuthRoutes(app, pool);
+  await registerMatchRoutes(app, pool);
 } else {
   app.all("/api/v1/auth/*", async (_request, reply) =>
     reply.code(503).send({ error: "DATABASE_NOT_CONFIGURED" })

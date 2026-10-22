@@ -5,14 +5,20 @@ import {
   scrypt,
   timingSafeEqual
 } from "node:crypto";
-import { promisify } from "node:util";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Pool, PoolClient } from "pg";
 import { SignJWT, jwtVerify } from "jose";
 import nodemailer, { type Transporter } from "nodemailer";
 import { z } from "zod";
 
-const scryptAsync = promisify(scrypt);
+function scryptAsync(password: string, salt: Buffer | string, keyLength: number, options: { N: number; r: number; p: number; maxmem: number }): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, keyLength, options, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(Buffer.from(derivedKey));
+    });
+  });
+}
 const ACCESS_COOKIE = "og_access";
 const REFRESH_COOKIE = "og_refresh";
 const ACCESS_SECONDS = 15 * 60;
@@ -226,7 +232,7 @@ async function createSession(
   request: FastifyRequest,
   userId: string,
   clientType: "web" | "mobile",
-  tokenFamilyId = randomUUID()
+  tokenFamilyId: string = randomUUID()
 ): Promise<{ accessToken: string; refreshToken: string }> {
   const sessionId = randomUUID();
   const refreshToken = randomBytes(32).toString("base64url");
@@ -534,7 +540,6 @@ export async function registerAuthRoutes(app: FastifyInstance, pool: Pool): Prom
         if (clientType !== old.client_type) {
           failure = "INVALID_REFRESH_TOKEN";
         } else {
-          const newId = randomUUID();
           const replacement = await createSession(client, request, old.user_id, clientType, old.token_family_id);
           // createSession generated its own session id; the previous session is linked by family.
           const newer = await client.query<{ id: string }>(
