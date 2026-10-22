@@ -1,9 +1,11 @@
 import Fastify from "fastify";
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import { Pool } from "pg";
 import { evaluateRealMoneyGate } from "@onlinegaming/domain";
+import { registerAuthRoutes } from "./auth.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -18,6 +20,19 @@ if (isProduction && allowedOrigins.length === 0) {
   throw new Error("WEB_ORIGINS must contain an explicit production origin allowlist.");
 }
 
+const databaseUrl = process.env.DATABASE_URL;
+const pool = databaseUrl ? new Pool({
+  connectionString: databaseUrl,
+  max: Number(process.env.DB_POOL_MAX ?? 10),
+  connectionTimeoutMillis: 3_000,
+  idleTimeoutMillis: 30_000,
+  ...(process.env.PGSSL === "true" ? { ssl: { rejectUnauthorized: true } } : {})
+}) : null;
+
+if (pool && (!process.env.ACCESS_TOKEN_SECRET || Buffer.byteLength(process.env.ACCESS_TOKEN_SECRET, "utf8") < 32)) {
+  throw new Error("ACCESS_TOKEN_SECRET must contain at least 32 bytes when DATABASE_URL is configured.");
+}
+
 const app = Fastify({
   logger: {
     level: process.env.LOG_LEVEL ?? (isProduction ? "info" : "debug"),
@@ -30,19 +45,11 @@ const app = Fastify({
   bodyLimit: 1_048_576
 });
 
-const databaseUrl = process.env.DATABASE_URL;
-const pool = databaseUrl ? new Pool({
-  connectionString: databaseUrl,
-  max: Number(process.env.DB_POOL_MAX ?? 10),
-  connectionTimeoutMillis: 3_000,
-  idleTimeoutMillis: 30_000,
-  ...(process.env.PGSSL === "true" ? { ssl: { rejectUnauthorized: true } } : {})
-}) : null;
-
 await app.register(helmet, {
   contentSecurityPolicy: true,
   crossOriginResourcePolicy: { policy: "same-site" }
 });
+await app.register(cookie);
 await app.register(cors, {
   origin: allowedOrigins.length > 0 ? allowedOrigins : false,
   credentials: true
@@ -64,7 +71,6 @@ app.get("/health/ready", async (_request, reply) => {
       checks: { database: "missing_configuration" }
     });
   }
-
   try {
     await pool.query("SELECT 1");
     return { status: "ready", checks: { database: "ok" } };
@@ -82,6 +88,7 @@ app.get("/api/v1/platform/status", async () => {
   return {
     service: "onlinegaming-api",
     environment: process.env.NODE_ENV ?? "development",
+    persistence: pool ? "configured" : "not_configured",
     moneyMovement: {
       enabled: false,
       status: "disabled",
@@ -91,6 +98,14 @@ app.get("/api/v1/platform/status", async () => {
     supportedGameEngines: ["tic-tac-toe-v1"]
   };
 });
+
+if (pool) {
+  await registerAuthRoutes(app, pool);
+} else {
+  app.all("/api/v1/auth/*", async (_request, reply) =>
+    reply.code(503).send({ error: "DATABASE_NOT_CONFIGURED" })
+  );
+}
 
 app.addHook("onClose", async () => {
   if (pool) await pool.end();
