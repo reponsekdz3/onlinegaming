@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-onlinegaming}
+      POSTGRES_USER: ${POSTGRES_USER:-onlinegaming}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your shell or .env file}
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onlinegaming -d onlinegaming"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - onlinegaming_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  onlinegaming_postgres_data:

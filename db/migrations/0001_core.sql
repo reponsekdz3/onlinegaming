@@ -1,4 +1,3 @@
-BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE users (
@@ -108,17 +107,13 @@ DECLARE
 BEGIN
   IF TG_TABLE_NAME = 'ledger_transactions' THEN
     target_transaction_id := NEW.id;
-  ELSIF TG_OP = 'DELETE' THEN
-    target_transaction_id := OLD.transaction_id;
   ELSE
     target_transaction_id := NEW.transaction_id;
   END IF;
-
   SELECT count(*) INTO entry_count FROM ledger_entries WHERE transaction_id = target_transaction_id;
   IF entry_count < 2 THEN
     RAISE EXCEPTION 'Ledger transaction % must contain at least two entries', target_transaction_id;
   END IF;
-
   IF EXISTS (
     SELECT currency FROM ledger_entries
     WHERE transaction_id = target_transaction_id
@@ -214,5 +209,3 @@ CREATE TABLE audit_events (
 );
 CREATE INDEX audit_events_target_idx ON audit_events(target_type, target_id, occurred_at DESC);
 CREATE INDEX audit_events_actor_idx ON audit_events(actor_user_id, occurred_at DESC);
-
-COMMIT;
