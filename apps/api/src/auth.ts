@@ -118,7 +118,7 @@ function clearSessionCookies(reply: FastifyReply): void {
 function trustedOrigin(request: FastifyRequest): boolean {
   const origin = request.headers.origin;
   if (!origin) return true;
-  const allowed = (process.env.WEB_ORIGINS ?? "")
+  const allowed = (process.env.WEB_ORIGINS ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:3000"))
     .split(",").map((value) => value.trim()).filter(Boolean);
   return allowed.includes(origin);
 }
@@ -233,7 +233,7 @@ async function createSession(
   userId: string,
   clientType: "web" | "mobile",
   tokenFamilyId: string = randomUUID()
-): Promise<{ accessToken: string; refreshToken: string }> {
+): Promise<{ sessionId: string; accessToken: string; refreshToken: string }> {
   const sessionId = randomUUID();
   const refreshToken = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + REFRESH_SECONDS * 1000);
@@ -247,7 +247,7 @@ async function createSession(
       request.ip ? digest(request.ip) : null
     ]
   );
-  return { accessToken: await issueAccessToken(userId, sessionId), refreshToken };
+  return { sessionId, accessToken: await issueAccessToken(userId, sessionId), refreshToken };
 }
 
 function sendSessionResponse(
@@ -502,7 +502,7 @@ export async function registerAuthRoutes(app: FastifyInstance, pool: Pool): Prom
     if (!suppliedToken) return reply.code(401).send({ error: "REFRESH_TOKEN_REQUIRED" });
 
     const client = await pool.connect();
-    let sessionData: { accessToken: string; refreshToken: string } | undefined;
+    let sessionData: { sessionId: string; accessToken: string; refreshToken: string } | undefined;
     let userData: { id: string; handle: string; display_name: string; email: string; email_verified_at: Date | null } | undefined;
     let clientType: "web" | "mobile" = parsed.data.clientType ?? "web";
     let failure: "INVALID_REFRESH_TOKEN" | "REFRESH_TOKEN_REUSE_DETECTED" | "SESSION_EXPIRED" | "ACCOUNT_NOT_ACTIVE" | null = null;
@@ -541,14 +541,9 @@ export async function registerAuthRoutes(app: FastifyInstance, pool: Pool): Prom
           failure = "INVALID_REFRESH_TOKEN";
         } else {
           const replacement = await createSession(client, request, old.user_id, clientType, old.token_family_id);
-          // createSession generated its own session id; the previous session is linked by family.
-          const newer = await client.query<{ id: string }>(
-            "SELECT id FROM auth_sessions WHERE refresh_token_hash = $1",
-            [tokenHash(replacement.refreshToken)]
-          );
           await client.query(
             "UPDATE auth_sessions SET revoked_at = now(), revocation_reason = 'rotated', replaced_by_session_id = $2, last_used_at = now() WHERE id = $1",
-            [old.id, newer.rows[0]?.id ?? newId]
+            [old.id, replacement.sessionId]
           );
           await writeAudit(client, old.user_id, "SESSION_REFRESHED", "auth_session", old.id, "SUCCESS");
           sessionData = replacement;
